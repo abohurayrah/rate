@@ -9,9 +9,9 @@ The calculator's behavior can be customized by editing the `config.json` file.
 ### Economic Constants
 
 - `cost_of_funds` (0.016): The cost of funding loans, currently set at 1.6%.
-- `min_viable_rate` (0.018): The absolute minimum viable monthly rate (1.8%).
-- `max_rate` (0.032): The maximum monthly rate that can be charged (3.2%).
-- `fixed_small_loan_rate` (0.04): The fixed rate for small loans (4.0%).
+- `min_viable_rate` (0.018): The absolute minimum viable monthly profit rate (1.8%).
+- `max_rate` (0.032): The maximum monthly profit rate that can be charged (3.2%).
+- `fixed_small_loan_rate` (0.04): The fixed profit rate for small loans (4.0%).
 - `small_loan_threshold` (100000): The threshold below which loans use the fixed rate (100,000 SAR).
 - `min_annual_irr` (0.20): The minimum annual Internal Rate of Return target (20%).
 
