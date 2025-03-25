@@ -3,6 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+import json
+import os
+
 class BNPLRateCalculator:
     """
     A rate calculator for a B2B BNPL fintech product.
@@ -11,32 +14,98 @@ class BNPLRateCalculator:
     - Pipeline pressure (demand)
     - Cash supply (available to issue loans)
     - Instalment duration
+    - Minimum IRR requirements
     """
     
-    def __init__(self):
-        # Economic constants
-        self.COST_OF_FUNDS = 0.016  # 1.6%
-        self.MIN_VIABLE_RATE = 0.018  # 1.8%
-        self.MAX_RATE = 0.035  # 3.5%
-        self.FIXED_SMALL_LOAN_RATE = 0.04  # 4% for loans up to 100k SAR
-        self.SMALL_LOAN_THRESHOLD = 100000  # 100k SAR
+    def __init__(self, config_path="config.json"):
+        """
+        Initialize the calculator with configuration values.
         
-        # Pipeline pressure buckets (number of leads)
-        self.pipeline_buckets = {
-            "very_low": (0, 10),
-            "low": (10, 25),
-            "decent": (25, 50),
-            "high": (50, float('inf'))
+        Parameters:
+        - config_path: Path to the configuration file. If file doesn't exist,
+                      default values will be used and a new config file will be created.
+        """
+        # Default configuration values
+        default_config = {
+            # Economic constants
+            "cost_of_funds": 0.016,  # 1.6%
+            "min_viable_rate": 0.018,  # 1.8%
+            "max_rate": 0.032,  # 3.2%
+            "fixed_small_loan_rate": 0.04,  # 4% for loans up to 100k SAR
+            "small_loan_threshold": 100000,  # 100k SAR
+            "min_annual_irr": 0.20,  # 20% minimum annual IRR
+            
+            # Pipeline pressure buckets (number of leads)
+            "pipeline_buckets": {
+                "very_low": [0, 10],
+                "low": [10, 25],
+                "decent": [25, 50],
+                "high": [50, 9999]
+            },
+            
+            # Cash supply ranges (in SAR)
+            "min_cash": 2000000,  # 2m SAR
+            "max_cash": 12000000,  # 12m SAR
+            "cash_buckets": 5,  # Number of cash supply divisions
+            
+            # Instalment durations (months)
+            "min_duration": 1,
+            "max_duration": 6,
+            
+            # Rate calculation weights
+            "pipeline_pressure_weight": 0.6,  # 60% weight to pipeline pressure
+            "cash_supply_weight": 0.4,  # 40% to cash supply
+            
+            # Duration adjustment factor (0-15% increase for longest duration)
+            "max_duration_adjustment": 0.15
         }
         
-        # Cash supply ranges (in SAR)
-        self.min_cash = 2_000_000  # 2m SAR
-        self.max_cash = 12_000_000  # 12m SAR
-        self.cash_buckets = 5  # Number of cash supply divisions
+        # Load configuration from file if it exists, otherwise create it with defaults
+        self.config = self._load_or_create_config(config_path, default_config)
         
-        # Instalment durations (months)
-        self.min_duration = 1
-        self.max_duration = 6
+        # Set instance variables from config
+        self.COST_OF_FUNDS = self.config["cost_of_funds"]
+        self.MIN_VIABLE_RATE = self.config["min_viable_rate"]
+        self.MAX_RATE = self.config["max_rate"]
+        self.FIXED_SMALL_LOAN_RATE = self.config["fixed_small_loan_rate"]
+        self.SMALL_LOAN_THRESHOLD = self.config["small_loan_threshold"]
+        self.MIN_ANNUAL_IRR = self.config["min_annual_irr"]
+        
+        # Convert pipeline buckets from list to tuple
+        self.pipeline_buckets = {
+            bucket: tuple(bounds) for bucket, bounds in self.config["pipeline_buckets"].items()
+        }
+        
+        self.min_cash = self.config["min_cash"]
+        self.max_cash = self.config["max_cash"]
+        self.cash_buckets = self.config["cash_buckets"]
+        
+        self.min_duration = self.config["min_duration"]
+        self.max_duration = self.config["max_duration"]
+        
+        self.pipeline_pressure_weight = self.config["pipeline_pressure_weight"]
+        self.cash_supply_weight = self.config["cash_supply_weight"]
+        self.max_duration_adjustment = self.config["max_duration_adjustment"]
+    
+    def _load_or_create_config(self, config_path, default_config):
+        """Load configuration from file or create new config file with defaults."""
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                print(f"Error reading config file {config_path}. Using default values.")
+                return default_config
+        else:
+            # Create config file with default values
+            try:
+                with open(config_path, 'w') as f:
+                    json.dump(default_config, f, indent=4)
+                print(f"Created new configuration file at {config_path}")
+                return default_config
+            except IOError:
+                print(f"Could not create config file {config_path}. Using default values.")
+                return default_config
     
     def get_pipeline_bucket(self, num_leads):
         """Determine the pipeline pressure bucket based on number of leads."""
@@ -63,22 +132,22 @@ class BNPLRateCalculator:
     
     def calculate_base_rate(self, pipeline_bucket, cash_bucket_index):
         """Calculate the base rate based on pipeline pressure and cash supply."""
-        # Pipeline pressure component
-        pipeline_weights = {
+        # Pipeline pressure component - loaded from config
+        pipeline_weights = self.config.get("pipeline_weights", {
             "very_low": 0.0,
             "low": 0.3,
             "decent": 0.7,
             "high": 1.0
-        }
-        pipeline_factor = pipeline_weights[pipeline_bucket]
+        })
+        pipeline_factor = pipeline_weights.get(pipeline_bucket, 0.0)
         
         # Cash supply component (inverse relationship - lower cash = higher rates)
         # We want a 0-1 range where 0 = max cash (lowest rates) and 1 = min cash (highest rates)
         cash_factor = 1 - (cash_bucket_index / (self.cash_buckets - 1))
         
-        # Combine factors with appropriate weights
-        # 60% weight to pipeline pressure, 40% to cash supply
-        combined_factor = 0.6 * pipeline_factor + 0.4 * cash_factor
+        # Combine factors with weights from config
+        combined_factor = (self.pipeline_pressure_weight * pipeline_factor + 
+                           self.cash_supply_weight * cash_factor)
         
         # Scale between minimum viable rate and maximum rate
         base_rate = self.MIN_VIABLE_RATE + combined_factor * (self.MAX_RATE - self.MIN_VIABLE_RATE)
@@ -90,14 +159,88 @@ class BNPLRateCalculator:
         # Normalize duration to a 0-1 scale
         duration_factor = (duration - self.min_duration) / (self.max_duration - self.min_duration)
         
-        # Apply a smaller adjustment for duration (0-15% increase for longest duration)
-        duration_adjustment = 0.15 * duration_factor
+        # Apply duration adjustment using the configured max adjustment factor
+        duration_adjustment = self.max_duration_adjustment * duration_factor
         
         # Apply the adjustment
         adjusted_rate = base_rate * (1 + duration_adjustment)
         
         # Ensure the rate doesn't exceed the maximum
         return min(adjusted_rate, self.MAX_RATE)
+        
+    def calculate_irr(self, rate, duration, loan_amount):
+        """
+        Calculate the Internal Rate of Return (IRR) for a loan.
+        
+        Parameters:
+        - rate: Monthly interest rate (decimal)
+        - duration: Loan duration in months
+        - loan_amount: Principal loan amount in SAR
+        
+        Returns:
+        - Annual IRR as a decimal
+        """
+        # Calculate monthly payment (equal instalments)
+        monthly_payment = loan_amount * (rate * (1 + rate)**duration) / ((1 + rate)**duration - 1)
+        
+        # Create cash flow array (-loan_amount followed by monthly payments)
+        cash_flows = [-loan_amount] + [monthly_payment] * duration
+        
+        # Calculate monthly IRR using numpy's IRR function
+        try:
+            monthly_irr = np.irr(cash_flows)
+            annual_irr = (1 + monthly_irr)**12 - 1
+            return annual_irr
+        except:
+            # Fallback calculation if IRR doesn't converge
+            # Simplified IRR approximation: total interest / (avg principal × duration)
+            total_interest = monthly_payment * duration - loan_amount
+            avg_principal = loan_amount / 2  # Simplified average outstanding principal
+            monthly_irr_approx = total_interest / (avg_principal * duration)
+            annual_irr_approx = (1 + monthly_irr_approx)**12 - 1
+            return annual_irr_approx
+    
+    def get_min_rate_for_irr(self, duration, loan_amount, target_irr=None):
+        """
+        Calculate the minimum monthly rate needed to achieve the target IRR.
+        
+        Parameters:
+        - duration: Loan duration in months
+        - loan_amount: Principal loan amount in SAR
+        - target_irr: Target annual IRR (decimal). If None, uses self.MIN_ANNUAL_IRR
+        
+        Returns:
+        - Minimum monthly rate required to achieve the target IRR
+        """
+        if target_irr is None:
+            target_irr = self.MIN_ANNUAL_IRR
+            
+        # Convert annual IRR to monthly
+        target_monthly_irr = (1 + target_irr)**(1/12) - 1
+        
+        # Start with a reasonable guess - slightly above the target monthly IRR
+        rate_guess = target_monthly_irr * 1.1
+        
+        # Binary search to find the rate that produces the target IRR
+        min_rate = self.MIN_VIABLE_RATE
+        max_rate = self.MAX_RATE
+        rate = rate_guess
+        tolerance = 0.0001
+        
+        for _ in range(20):  # Limit iterations to prevent infinite loops
+            calculated_irr = self.calculate_irr(rate, duration, loan_amount)
+            
+            if abs(calculated_irr - target_irr) < tolerance:
+                break
+                
+            if calculated_irr < target_irr:
+                min_rate = rate
+                rate = (rate + max_rate) / 2
+            else:
+                max_rate = rate
+                rate = (min_rate + rate) / 2
+        
+        return max(rate, self.MIN_VIABLE_RATE)
     
     def get_rate(self, loan_amount, num_leads, cash_supply, duration):
         """
@@ -126,10 +269,16 @@ class BNPLRateCalculator:
         base_rate = self.calculate_base_rate(pipeline_bucket, cash_bucket_index)
         
         # Adjust for duration
-        final_rate = self.adjust_for_duration(base_rate, duration)
+        adjusted_rate = self.adjust_for_duration(base_rate, duration)
         
-        # Ensure the rate doesn't fall below the minimum viable rate
-        return max(final_rate, self.MIN_VIABLE_RATE)
+        # Calculate the minimum rate needed to achieve target IRR
+        irr_based_rate = self.get_min_rate_for_irr(duration, loan_amount)
+        
+        # Take the maximum of the adjusted rate and the IRR-based minimum rate
+        final_rate = max(adjusted_rate, irr_based_rate, self.MIN_VIABLE_RATE)
+        
+        # Ensure the rate doesn't exceed the maximum rate
+        return min(final_rate, self.MAX_RATE)
     
     def generate_rate_matrix(self, loan_amount, duration=3):
         """

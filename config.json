@@ -1,0 +1,33 @@
+{
+    "cost_of_funds": 0.016,
+    "min_viable_rate": 0.018,
+    "max_rate": 0.032,
+    "fixed_small_loan_rate": 0.04,
+    "small_loan_threshold": 100000,
+    "min_annual_irr": 0.20,
+    
+    "pipeline_buckets": {
+        "very_low": [0, 10],
+        "low": [10, 25],
+        "decent": [25, 50],
+        "high": [50, 9999]
+    },
+    
+    "pipeline_weights": {
+        "very_low": 0.0,
+        "low": 0.3,
+        "decent": 0.7,
+        "high": 1.0
+    },
+    
+    "min_cash": 2000000,
+    "max_cash": 12000000,
+    "cash_buckets": 5,
+    
+    "min_duration": 1,
+    "max_duration": 6,
+    
+    "pipeline_pressure_weight": 0.6,
+    "cash_supply_weight": 0.4,
+    "max_duration_adjustment": 0.15
+}

@@ -13,11 +13,19 @@ def basic_example():
         duration=3           # 3-month instalment plan
     )
     
+    # Calculate the IRR for this rate
+    irr = calculator.calculate_irr(rate, 3, 200000)
+    
+    # Calculate minimum rate needed for target IRR
+    min_irr_rate = calculator.get_min_rate_for_irr(3, 200000)
+    
     print(f"Example: Rate for a 200,000 SAR loan with decent pipeline pressure (35 leads),")
     print(f"8M SAR cash supply, and 3-month duration:")
     print(f"Calculated rate: {rate:.2%}")
+    print(f"Annual IRR: {irr:.2%}")
+    print(f"Minimum rate needed for target IRR ({calculator.MIN_ANNUAL_IRR:.0%}): {min_irr_rate:.2%}")
     
-    return rate
+    return rate, irr, min_irr_rate
 
 def matrix_example():
     """Generate and display a rate matrix for a specific loan amount and duration."""
@@ -79,16 +87,40 @@ def duration_comparison_example():
     
     print("\nDuration Comparison for a 200,000 SAR loan:")
     print("30 leads (decent pressure), 6M SAR cash supply")
-    print("\nDuration | Rate")
-    print("-" * 20)
+    print("\nDuration | Rate    | Annual IRR | Min Rate for Target IRR | Rate Increase")
+    print("-" * 75)
     
     rates = {}
+    irrs = {}
+    min_rates = {}
+    prev_rate = None
+    
     for duration in range(1, 7):
         rate = calculator.get_rate(loan_amount, num_leads, cash_supply, duration)
+        irr = calculator.calculate_irr(rate, duration, loan_amount)
+        min_rate = calculator.get_min_rate_for_irr(duration, loan_amount)
+        
         rates[duration] = rate
-        print(f"{duration} month  | {rate:.2%}")
+        irrs[duration] = irr
+        min_rates[duration] = min_rate
+        
+        if prev_rate is not None:
+            rate_increase = rate - prev_rate
+            rate_increase_pct = rate_increase / prev_rate * 100
+            rate_increase_str = f"+{rate_increase:.2%} (+{rate_increase_pct:.1f}%)"
+        else:
+            rate_increase_str = "N/A"
+            
+        print(f"{duration} month  | {rate:.2%} | {irr:.2%}  | {min_rate:.2%}               | {rate_increase_str}")
+        prev_rate = rate
     
-    return rates
+    # Calculate the average rate increase per additional month
+    total_increase = rates[6] - rates[1]
+    avg_increase_per_month = total_increase / 5
+    print(f"\nAverage rate increase per additional month: {avg_increase_per_month:.2%}")
+    print(f"Average percent increase: {avg_increase_per_month / rates[1] * 100:.1f}% of base rate")
+    
+    return rates, irrs, min_rates
 
 def exceptional_cash_example():
     """Example showing how the calculator handles exceptional cash inflows."""
